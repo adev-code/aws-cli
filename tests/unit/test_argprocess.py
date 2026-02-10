@@ -15,6 +15,7 @@ import json
 from botocore import model, xform_name
 from botocore.compat import OrderedDict
 
+from awscli.argparser import ArgTableArgParser
 from awscli.argprocess import (
     ParamError,
     ParamShorthandDocGen,
@@ -69,7 +70,7 @@ class BaseArgProcessTest(BaseCLIDriverTest):
 
 class TestURIParams(BaseArgProcessTest):
     def setUp(self):
-        super(TestURIParams, self).setUp()
+        super().setUp()
         self.uri_param = URIArgumentHandler(LOCAL_PREFIX_MAP.copy())
 
     def test_uri_param(self):
@@ -80,7 +81,7 @@ class TestURIParams(BaseArgProcessTest):
             )
             f.write(json_argument)
             f.flush()
-            result = self.uri_param('event-name', p, 'file://%s' % f.name)
+            result = self.uri_param('event-name', p, f'file://{f.name}')
         self.assertEqual(result, json_argument)
 
 
@@ -173,7 +174,7 @@ class TestParamShorthand(BaseArgProcessTest):
     maxDiff = None
 
     def setUp(self):
-        super(TestParamShorthand, self).setUp()
+        super().setUp()
         self._shorthand = ParamShorthandParser()
 
     def parse_shorthand(self, cli_argument, value, event_name=None):
@@ -490,7 +491,7 @@ class TestParamShorthand(BaseArgProcessTest):
 
 class TestParamShorthandCustomArguments(BaseArgProcessTest):
     def setUp(self):
-        super(TestParamShorthandCustomArguments, self).setUp()
+        super().setUp()
         self.shorthand = ParamShorthandParser()
 
     def test_list_structure_list_scalar_custom_arg(self):
@@ -555,7 +556,7 @@ class TestDocGen(BaseArgProcessTest):
     # flexible and allow the docs to slightly change without breaking these
     # tests.
     def setUp(self):
-        super(TestDocGen, self).setUp()
+        super().setUp()
         self.shorthand_documenter = ParamShorthandDocGen()
         self.service_name = 'foo'
         self.operation_name = 'bar'
@@ -728,7 +729,7 @@ class TestDocGen(BaseArgProcessTest):
 
     def test_can_gen_recursive_structure(self):
         argument = self.get_param_model('dynamodb.PutItem.Item')
-        generated_example = self.get_generated_example_for(argument)
+        self.get_generated_example_for(argument)
 
     def test_can_document_nested_structs(self):
         argument = self.get_param_model('ec2.RunInstances.BlockDeviceMappings')
@@ -885,12 +886,14 @@ class TestDocGen(BaseArgProcessTest):
             }
         )
         generated_example = self.get_generated_example_for(argument)
-        self.assertEqual('A={KeyName1={B=string},KeyName2={B=string}}', generated_example)
+        self.assertEqual(
+            'A={KeyName1={B=string},KeyName2={B=string}}', generated_example
+        )
 
 
 class TestUnpackJSONParams(BaseArgProcessTest):
     def setUp(self):
-        super(TestUnpackJSONParams, self).setUp()
+        super().setUp()
         self.simplify = ParamShorthandParser()
 
     def test_json_with_spaces(self):
@@ -925,7 +928,7 @@ class TestUnpackJSONParams(BaseArgProcessTest):
 
 class TestJSONValueHeaderParams(BaseArgProcessTest):
     def setUp(self):
-        super(TestJSONValueHeaderParams, self).setUp()
+        super().setUp()
         self.p = self.get_param_model(
             'lex-runtime.PostContent.sessionAttributes'
         )
@@ -966,6 +969,47 @@ class TestJSONValueHeaderParams(BaseArgProcessTest):
         value = 'invalid string to be serialized'
         with self.assertRaises(ParamError):
             unpack_cli_arg(self.p, value)
+
+
+class TestArgumentPercentEscaping(BaseArgProcessTest):
+    def _test_percent_escaping(self, arg_type, arg_class, doc_string):
+        argument = self.create_argument(
+            {
+                'Test': {
+                    'type': arg_type,
+                    'documentation': doc_string,
+                }
+            }
+        )
+        arg = arg_class(
+            'test-arg',
+            argument.argument_model.members['Test'],
+            mock.Mock(),
+            mock.Mock(),
+            is_required=False,
+        )
+        arg_table = {arg.name: arg}
+        parser = ArgTableArgParser(arg_table)
+        help_output = parser.format_help()
+        self.assertIn(doc_string, help_output)
+
+    def test_cli_argument_escapes_percent(self):
+        self._test_percent_escaping('string', CLIArgument, 'Symbols: % ^ & *')
+
+    def test_boolean_argument_escapes_percent(self):
+        self._test_percent_escaping(
+            'boolean', BooleanArgument, 'Symbols: % ^ & *'
+        )
+
+    def test_cli_argument_escapes_url_encoded_percent(self):
+        self._test_percent_escaping(
+            'string', CLIArgument, 'File: test%28file%29.png'
+        )
+
+    def test_boolean_argument_escapes_url_encoded_percent(self):
+        self._test_percent_escaping(
+            'boolean', BooleanArgument, 'File: test%28file%29.png'
+        )
 
 
 if __name__ == '__main__':
